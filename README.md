@@ -23,7 +23,7 @@ $ mysql ... -e "select user_id, name from user" | io tsv json | jq .name
 "A"
 "B"
 
-$ mysql ... -e "select user_id, name from user" | io tsv json | jq '{id:.user_id, name}' | ./io json csv
+$ mysql ... -e "select user_id, name from user" | io tsv json | jq '{id:.user_id, name}' | io json csv
 "id", "name"
 "1", "A"
 "2", "B"
