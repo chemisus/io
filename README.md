@@ -7,23 +7,23 @@ Works great for combining `jq` with `mysql`
 ## Example
 
 ```bash
-$ cat samples/test.tsv | ./io tsv json
+$ cat samples/test.tsv | io tsv json
 {"a": "A", "b": "B"}
 {"a": "AA", "b": "BB"}
 
-$ cat samples/test.csv | ./io csv json
+$ cat samples/test.csv | io csv json
 {"a": "A", "b": "B"}
 {"a": "AA", "b": "BB"}
 
-$ mysql ... -e "select user_id, name from user" | ./io tsv json
+$ mysql ... -e "select user_id, name from user" | io tsv json
 {"user_id": "1", "name": "A"}
 {"user_id": "2", "name": "B"}
 
-$ mysql ... -e "select user_id, name from user" | ./io tsv json | jq .name
+$ mysql ... -e "select user_id, name from user" | io tsv json | jq .name
 "A"
 "B"
 
-$ mysql ... -e "select user_id, name from user" | ./io tsv json | jq '{id:.user_id, name}' | ./io json csv
+$ mysql ... -e "select user_id, name from user" | io tsv json | jq '{id:.user_id, name}' | ./io json csv
 "id", "name"
 "1", "A"
 "2", "B"
