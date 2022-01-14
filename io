@@ -1,5 +1,7 @@
 #!/usr/bin/env python
+from abc import abstractmethod
 from functools import wraps
+from typing import Iterable, Tuple, List
 
 import click
 import logging
@@ -15,17 +17,29 @@ class IO:
     writer = None
 
     def write(self, input):
-        for keys, values in self.reader.read(input):
-            for data in self.writer.write(keys, values):
-                print(data)
+        entries = self.reader.read(input)
+        for line in self.writer.write(entries):
+            print(line)
 
 
-class CSVReader:
-    def __init__(self, delimiter=",", quotechar='"'):
+class Reader:
+    @abstractmethod
+    def read(self, input: Iterable[str]) -> Iterable[Tuple[List[str], List[str]]]:
+        pass
+
+
+class Writer:
+    @abstractmethod
+    def write(self, entries: Iterable[Tuple[List[str], List[str]]]) -> Iterable[str]:
+        pass
+
+
+class DelimitedReader(Reader):
+    def __init__(self, delimiter: str = ",", quotechar: str = '"'):
         self.delimiter = delimiter
         self.quotechar = quotechar
 
-    def read(self, input):
+    def read(self, input: Iterable[str]) -> Iterable[Tuple[List[str], List[str]]]:
         reader = csv.reader(input, delimiter=self.delimiter, quotechar=self.quotechar)
         keys = None
         for row in reader:
@@ -36,50 +50,103 @@ class CSVReader:
             yield keys, row
 
 
-class CSVWriter:
-    def write(self, keys, values):
-        if False:
-            yield {}
+class DelimitedWriter(Writer):
+    def __init__(self, delimiter: str = ",", quotechar: str = '"', forcequote=False):
+        self.delimiter = delimiter
+        self.quotechar = quotechar
+        self.forcequote = forcequote
+
+    def quote(self, value) -> str:
+        value = str(value).replace(self.quotechar, self.quotechar + self.quotechar)
+
+        if self.forcequote or self.delimiter in value:
+            value = self.quotechar + value + self.quotechar
+
+        return value
+
+    def write(self, entries: Iterable[Tuple[List[str], List[str]]]) -> Iterable[str]:
+        keyed = False
+        for keys, values in entries:
+            if not keyed:
+                yield self.delimiter.join([self.quote(it) for it in keys])
+
+            yield self.delimiter.join([self.quote(it) for it in values])
 
 
-class JSONReader:
-    def read(self, input):
-        pass
+class CSV:
+    DELIMITER = ','
+    QUOTECHAR = '"'
 
 
-class JSONWriter:
+class TSV:
+    DELIMITER = '\t'
+    QUOTECHAR = '"'
+
+
+class SSV:
+    DELIMITER = ' '
+    QUOTECHAR = '"'
+
+
+class JSONReader(Reader):
+    def read(self, input) -> Iterable[Tuple[List[str], List[str]]]:
+        keys = None
+        for line in input:
+            data = json.loads(line)
+            if keys is None:
+                keys = list(data.keys())
+            values = [data[it] for it in keys]
+            yield keys, values
+
+
+class JSONWriter(Writer):
     def __init__(self, indent=0):
         self.indent = indent
 
-    def write(self, keys, values):
-        data = {}
-        for i in range(0, len(keys)):
-            data[keys[i]] = values[i]
-        yield json.dumps(data, indent=self.indent if self.indent else None)
+    def write(self, entries: Iterable[Tuple[List[str], List[str]]]) -> Iterable[str]:
+        for keys, values in entries:
+            data = {keys[i]: values[i] for i in range(0, len(keys))}
+            yield json.dumps(data, indent=self.indent if self.indent else None)
 
 
 @click.group()
 @click.pass_context
 def io(context):
-    logger.info("io")
     context.obj = IO()
 
 
 def make_readers():
     @io.group()
-    @click.option('-d', 'separator', default=',')
+    @click.option('-d', 'delimiter', default=CSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=CSV.QUOTECHAR)
     @click.pass_obj
-    def csv(io, separator):
-        logger.info("csv reader")
-        io.reader = CSVReader()
+    def csv(io, delimiter, quotechar):
+        io.reader = DelimitedReader(delimiter, quotechar)
 
     yield csv
 
     @io.group()
+    @click.option('-d', 'delimiter', default=TSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=TSV.QUOTECHAR)
+    @click.pass_obj
+    def tsv(io, delimiter, quotechar):
+        io.reader = DelimitedReader(delimiter, quotechar)
+
+    yield tsv
+
+    @io.group()
+    @click.option('-d', 'delimiter', default=SSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=SSV.QUOTECHAR)
+    @click.pass_obj
+    def ssv(io, delimiter, quotechar):
+        io.reader = DelimitedReader(delimiter, quotechar)
+
+    yield ssv
+
+    @io.group()
     @click.pass_obj
     def json(io):
-        logger.info("json reader")
-        io.reader = JSONWriter()
+        io.reader = JSONReader()
 
     yield json
 
@@ -97,18 +164,33 @@ def make_writers(reader):
 
     @reader.command()
     @click.argument('inputs', type=click.File('r'), nargs=-1)
-    @click.option('-d', 'separator', default=',')
+    @click.option('-d', 'delimiter', default=CSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=CSV.QUOTECHAR)
     @writer
-    def csv(io, inputs, separator):
-        logger.info("csv writer")
-        io.writer = CSVWriter()
+    def csv(io, inputs, delimiter, quotechar):
+        io.writer = DelimitedWriter(delimiter, quotechar)
+
+    @reader.command()
+    @click.argument('inputs', type=click.File('r'), nargs=-1)
+    @click.option('-d', 'delimiter', default=TSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=TSV.QUOTECHAR)
+    @writer
+    def tsv(io, inputs, delimiter, quotechar):
+        io.writer = DelimitedWriter(delimiter, quotechar)
+
+    @reader.command()
+    @click.argument('inputs', type=click.File('r'), nargs=-1)
+    @click.option('-d', 'delimiter', default=SSV.DELIMITER)
+    @click.option('-c', 'quotechar', default=SSV.QUOTECHAR)
+    @writer
+    def ssv(io, inputs, delimiter, quotechar):
+        io.writer = DelimitedWriter(delimiter, quotechar)
 
     @reader.command()
     @click.argument('inputs', type=click.File('r'), nargs=-1)
     @click.option('-i', '--indent', 'indent', type=int, default=0)
     @writer
     def json(io, inputs, indent):
-        logger.info("json writer")
         io.writer = JSONWriter(indent)
 
 
