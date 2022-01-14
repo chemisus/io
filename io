@@ -35,12 +35,12 @@ class Writer:
 
 
 class DelimitedReader(Reader):
-    def __init__(self, delimiter: str = ",", quotechar: str = '"'):
+    def __init__(self, delimiter: str, quote_character: str):
         self.delimiter = delimiter
-        self.quotechar = quotechar
+        self.quote_character = quote_character
 
     def read(self, input: Iterable[str]) -> Iterable[Tuple[List[str], List[str]]]:
-        reader = csv.reader(input, delimiter=self.delimiter, quotechar=self.quotechar)
+        reader = csv.reader(input, delimiter=self.delimiter, quotechar=self.quote_character)
         keys = None
         for row in reader:
             if keys is None:
@@ -51,16 +51,16 @@ class DelimitedReader(Reader):
 
 
 class DelimitedWriter(Writer):
-    def __init__(self, delimiter: str = ",", quotechar: str = '"', forcequote=False):
+    def __init__(self, delimiter: str, quote_character: str, force_quote: bool):
         self.delimiter = delimiter
-        self.quotechar = quotechar
-        self.forcequote = forcequote
+        self.quote_character = quote_character
+        self.force_quote = force_quote
 
     def quote(self, value) -> str:
-        value = str(value).replace(self.quotechar, self.quotechar + self.quotechar)
+        value = str(value).replace(self.quote_character, self.quote_character + self.quote_character)
 
-        if self.forcequote or self.delimiter in value:
-            value = self.quotechar + value + self.quotechar
+        if self.force_quote or self.delimiter in value:
+            value = self.quote_character + value + self.quote_character
 
         return value
 
@@ -68,6 +68,7 @@ class DelimitedWriter(Writer):
         keyed = False
         for keys, values in entries:
             if not keyed:
+                keyed = True
                 yield self.delimiter.join([self.quote(it) for it in keys])
 
             yield self.delimiter.join([self.quote(it) for it in values])
@@ -75,17 +76,20 @@ class DelimitedWriter(Writer):
 
 class CSV:
     DELIMITER = ','
-    QUOTECHAR = '"'
+    QUOTE_CHARACTER = '"'
+    FORCE_QUOTE = False
 
 
 class TSV:
     DELIMITER = '\t'
-    QUOTECHAR = '"'
+    QUOTE_CHARACTER = '"'
+    FORCE_QUOTE = False
 
 
 class SSV:
     DELIMITER = ' '
-    QUOTECHAR = '"'
+    QUOTE_CHARACTER = '"'
+    FORCE_QUOTE = False
 
 
 class JSONReader(Reader):
@@ -116,32 +120,19 @@ def io(context):
 
 
 def make_readers():
-    @io.group()
-    @click.option('-d', 'delimiter', default=CSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=CSV.QUOTECHAR)
-    @click.pass_obj
-    def csv(io, delimiter, quotechar):
-        io.reader = DelimitedReader(delimiter, quotechar)
+    def make_delimiter_reader(name: str, delimiter: str, quote_character: str):
+        @io.group(name=name)
+        @click.option('-d', 'delimiter', default=delimiter)
+        @click.option('-c', 'quote_character', default=quote_character)
+        @click.pass_obj
+        def delimiter_reader(io, delimiter, quote_character):
+            io.reader = DelimitedReader(delimiter, quote_character)
 
-    yield csv
+        return delimiter_reader
 
-    @io.group()
-    @click.option('-d', 'delimiter', default=TSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=TSV.QUOTECHAR)
-    @click.pass_obj
-    def tsv(io, delimiter, quotechar):
-        io.reader = DelimitedReader(delimiter, quotechar)
-
-    yield tsv
-
-    @io.group()
-    @click.option('-d', 'delimiter', default=SSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=SSV.QUOTECHAR)
-    @click.pass_obj
-    def ssv(io, delimiter, quotechar):
-        io.reader = DelimitedReader(delimiter, quotechar)
-
-    yield ssv
+    yield make_delimiter_reader("csv", CSV.DELIMITER, CSV.QUOTE_CHARACTER)
+    yield make_delimiter_reader("tsv", TSV.DELIMITER, TSV.QUOTE_CHARACTER)
+    yield make_delimiter_reader("ssv", SSV.DELIMITER, SSV.QUOTE_CHARACTER)
 
     @io.group()
     @click.pass_obj
@@ -162,29 +153,21 @@ def make_writers(reader):
 
         return wrapper
 
-    @reader.command()
-    @click.argument('inputs', type=click.File('r'), nargs=-1)
-    @click.option('-d', 'delimiter', default=CSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=CSV.QUOTECHAR)
-    @writer
-    def csv(io, inputs, delimiter, quotechar):
-        io.writer = DelimitedWriter(delimiter, quotechar)
+    def make_delimiter_writer(name: str, delimiter: str, quote_character: str, force_quote: bool):
+        @reader.command(name=name)
+        @click.argument('inputs', type=click.File('r'), nargs=-1)
+        @click.option('-d', 'delimiter', default=delimiter)
+        @click.option('-c', 'quote_character', default=quote_character)
+        @click.option('-f', '--force-quote/--no-force-quote', 'force_quote', default=force_quote)
+        @writer
+        def delimiter_writer(io, inputs, delimiter, quote_character, force_quote):
+            io.writer = DelimitedWriter(delimiter, quote_character, force_quote)
 
-    @reader.command()
-    @click.argument('inputs', type=click.File('r'), nargs=-1)
-    @click.option('-d', 'delimiter', default=TSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=TSV.QUOTECHAR)
-    @writer
-    def tsv(io, inputs, delimiter, quotechar):
-        io.writer = DelimitedWriter(delimiter, quotechar)
+        return delimiter_writer
 
-    @reader.command()
-    @click.argument('inputs', type=click.File('r'), nargs=-1)
-    @click.option('-d', 'delimiter', default=SSV.DELIMITER)
-    @click.option('-c', 'quotechar', default=SSV.QUOTECHAR)
-    @writer
-    def ssv(io, inputs, delimiter, quotechar):
-        io.writer = DelimitedWriter(delimiter, quotechar)
+    make_delimiter_writer("csv", CSV.DELIMITER, CSV.QUOTE_CHARACTER, CSV.FORCE_QUOTE)
+    make_delimiter_writer("tsv", TSV.DELIMITER, TSV.QUOTE_CHARACTER, TSV.FORCE_QUOTE)
+    make_delimiter_writer("ssv", SSV.DELIMITER, SSV.QUOTE_CHARACTER, SSV.FORCE_QUOTE)
 
     @reader.command()
     @click.argument('inputs', type=click.File('r'), nargs=-1)
