@@ -43,8 +43,8 @@ chmod +x /usr/local/bin/io
 
 | name | read | write | notes |
 |---|---|---|---|
-| csv | only reads unquoted data | yes | first line will be treated as headers for both read and write
-| tsv | only reads unquoted data | yes | first line will be treated as headers for both read and write
+| csv | yes | yes | first line will be treated as headers for both read and write
+| tsv | yes | yes | first line will be treated as headers for both read and write
 | json | yes | yes |
 | xml | no | no | 
 
