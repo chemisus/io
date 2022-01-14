@@ -1,178 +1,119 @@
 #!/usr/bin/env python
+from functools import wraps
 
-import sys
+import click
+import logging
+import csv
 import json
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class IO:
-    @staticmethod
-    def main():
-        [plugin.enable() for plugin in PLUGINS]
+    reader = None
+    writer = None
 
-        reader_name = sys.argv[1]
-        writer_name = sys.argv[2]
-
-        stream = sys.stdin
-        reader = READERS[reader_name]()
-        writer = WRITERS[writer_name]()
-
-        IO(stream, reader, writer).transform()
-
-    def __init__(self, stream, reader, writer):
-        self.stream = stream
-        self.reader = reader
-        self.writer = writer
-
-    def transform(self):
-        for line in self.stream:
-            line = line.strip("\n")
-            if len(line):
-                self.reader.read(line, self.writer)
+    def write(self, input):
+        for keys, values in self.reader.read(input):
+            for data in self.writer.write(keys, values):
+                print(data)
 
 
-class Plugin:
-    def enable(self):
-        pass
+class CSVReader:
+    def __init__(self, delimiter=",", quotechar='"'):
+        self.delimiter = delimiter
+        self.quotechar = quotechar
 
-    def disable(self):
-        pass
+    def read(self, input):
+        reader = csv.reader(input, delimiter=self.delimiter, quotechar=self.quotechar)
+        keys = None
+        for row in reader:
+            if keys is None:
+                keys = row
+                continue
+
+            yield keys, row
 
 
-class Writer:
-    def write(self, keys: [str], values: [str]):
-        pass
+class CSVWriter:
+    def write(self, keys, values):
+        if False:
+            yield {}
 
 
-class Reader:
-    def read(self, line: str, writer: Writer):
+class JSONReader:
+    def read(self, input):
         pass
 
 
-class TSVReader(Reader):
-    keys = None
+class JSONWriter:
+    def __init__(self, indent=0):
+        self.indent = indent
 
-    def read(self, line: str, writer: Writer):
-        values = line.split("\t")
-        if self.keys is None:
-            self.keys = values
-        else:
-            writer.write(self.keys, values)
-
-
-class CSVReader(Reader):
-    keys = None
-
-    def read(self, line: str, writer: Writer):
-        values = line.split(",")
-        if self.keys is None:
-            self.keys = values
-        else:
-            writer.write(self.keys, values)
+    def write(self, keys, values):
+        data = {}
+        for i in range(0, len(keys)):
+            data[keys[i]] = values[i]
+        yield json.dumps(data, indent=self.indent if self.indent else None)
 
 
-class JSONReader(Reader):
-    keys = None
-
-    def read(self, line: str, writer: Writer):
-        value = json.loads(line)
-
-        if self.keys is None:
-            self.keys = value.keys()
-
-        values = [value.get(key) for key in self.keys]
-        writer.write(self.keys, values)
+@click.group()
+@click.pass_context
+def io(context):
+    logger.info("io")
+    context.obj = IO()
 
 
-class TSVWriter(Writer):
-    keys = None
+def make_readers():
+    @io.group()
+    @click.option('-d', 'separator', default=',')
+    @click.pass_obj
+    def csv(io, separator):
+        logger.info("csv reader")
+        io.reader = CSVReader()
 
-    def write(self, keys: [str], values: [str]):
-        if self.keys is None:
-            self.keys = keys
-            for key in self.keys:
-                print(json.dumps(key), end="")
-                print("\t", end="")
+    yield csv
 
-        print("")
-        for value in values:
-            print(json.dumps(value), end="")
-            print("\t", end="")
+    @io.group()
+    @click.pass_obj
+    def json(io):
+        logger.info("json reader")
+        io.reader = JSONWriter()
 
-
-class CSVWriter(Writer):
-    keys = None
-
-    def write(self, keys: [str], values: [str]):
-        if self.keys is None:
-            self.keys = keys
-            for key in self.keys:
-                print(json.dumps(key), end="")
-                print(",", end="")
-
-        print("")
-        for value in values:
-            print(json.dumps(value), end="")
-            print(",", end="")
+    yield json
 
 
-class JSONWriter(Writer):
-    def write(self, keys: [str], values: [str]):
-        print(json.dumps(dict(zip(keys, values))))
+def make_writers(reader):
+    def writer(writer):
+        @click.pass_obj
+        @wraps(writer)
+        def wrapper(io: IO, inputs, *args, **kwargs):
+            writer(io, inputs, *args, **kwargs)
+            for input in inputs:
+                io.write(input)
+
+        return wrapper
+
+    @reader.command()
+    @click.argument('inputs', type=click.File('r'), nargs=-1)
+    @click.option('-d', 'separator', default=',')
+    @writer
+    def csv(io, inputs, separator):
+        logger.info("csv writer")
+        io.writer = CSVWriter()
+
+    @reader.command()
+    @click.argument('inputs', type=click.File('r'), nargs=-1)
+    @click.option('-i', '--indent', 'indent', type=int, default=0)
+    @writer
+    def json(io, inputs, indent):
+        logger.info("json writer")
+        io.writer = JSONWriter(indent)
 
 
-class JSONPlugin(Plugin):
-    name = "json"
-    reader = JSONReader
-    writer = JSONWriter
+if __name__ == '__main__':
+    for reader in make_readers():
+        make_writers(reader)
 
-    def enable(self):
-        READERS[self.name] = self.reader
-        WRITERS[self.name] = self.writer
-
-    def disable(self):
-        del READERS[self.name]
-        del WRITERS[self.name]
-
-
-class TSVPlugin(Plugin):
-    name = "tsv"
-    reader = TSVReader
-    writer = TSVWriter
-
-    def enable(self):
-        READERS[self.name] = self.reader
-        WRITERS[self.name] = self.writer
-
-    def disable(self):
-        del READERS[self.name]
-        del WRITERS[self.name]
-
-
-class CSVPlugin(Plugin):
-    name = "csv"
-    reader = CSVReader
-    writer = CSVWriter
-
-    def enable(self):
-        READERS[self.name] = self.reader
-        WRITERS[self.name] = self.writer
-
-    def disable(self):
-        del READERS[self.name]
-        del WRITERS[self.name]
-
-
-PLUGINS = []
-
-PLUGINS.append(JSONPlugin())
-PLUGINS.append(TSVPlugin())
-PLUGINS.append(CSVPlugin())
-
-READERS = {
-}
-
-WRITERS = {
-}
-
-if __name__ == "__main__":
-    IO.main()
+    io()
